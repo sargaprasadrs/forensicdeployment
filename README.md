@@ -1,70 +1,92 @@
-# Getting Started with Create React App
+# Forensic Sketching
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+This project combines a React frontend with a Python backend for the forensic sketching workflow.
 
-## Available Scripts
+## Prerequisites
 
-In the project directory, you can run:
+Make sure the target system has:
 
-### `npm start`
+- Python 3.10 or newer
+- Node.js and npm
+- Git
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+## Setup on a New System
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+1. Clone the repository and move into the project folder:
 
-### `npm test`
+```bash
+git clone <your-repo-url>
+cd forensic_sketching
+```
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+2. Create a Python virtual environment:
 
-### `npm run build`
+```bash
+python -m venv venv
+```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+3. Activate the virtual environment:
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+Windows:
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+```bat
+venv\Scripts\activate
+```
 
-### `npm run eject`
+macOS/Linux:
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+```bash
+source venv/bin/activate
+```
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+4. Install the Python dependencies:
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+```bash
+pip install -r requirements.txt
+```
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+5. Install the frontend dependencies:
 
-## Learn More
+```bash
+npm install
+```
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+## Running the Project
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+### Option 1: Use the Windows launcher
 
-### Code Splitting
+On Windows, you can use the included launcher:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+```bat
+run.bat
+```
 
-### Analyzing the Bundle Size
+This script will:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+- create the virtual environment if it does not exist
+- install Python requirements if needed
+- install Node dependencies if needed
+- start the Python backend
+- start the React frontend
 
-### Making a Progressive Web App
+### Option 2: Start services manually
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+Start the Python backend:
 
-### Advanced Configuration
+```bash
+python server/main.py
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+In a separate terminal, start the React frontend:
 
-### Deployment
+```bash
+npm start
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+The frontend runs at `http://localhost:3000`.
 
-### `npm run build` fails to minify
+## Notes
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+- If `pip` is outdated, you can upgrade it with `python -m pip install --upgrade pip`.
+- Keep the virtual environment activated whenever you work on the Python backend.
+- If you are setting this up on a new machine, install all dependencies again inside the new virtual environment.
