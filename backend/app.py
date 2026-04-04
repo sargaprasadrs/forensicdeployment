@@ -1,0 +1,70 @@
+import os
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from faster_whisper import WhisperModel
+import tempfile
+import time
+
+app = Flask(__name__)
+CORS(app)
+
+# Initialize Whisper model with specific configurations for Windows compatibility
+print("Loading Whisper model...")
+model = WhisperModel("base", device="cpu", compute_type="int8")
+print("Whisper model loaded successfully!")
+
+@app.route("/api/transcribe", methods=["POST"])
+def transcribe_audio():
+    """
+    Receives audio file and transcribes using Whisper directly.
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No audio file provided"}), 400
+
+    audio_file = request.files["file"]
+    temp_path = None
+
+    try:
+        # Create temporary file with a unique name
+        temp_fd, temp_path = tempfile.mkstemp(suffix='.webm')
+        os.close(temp_fd)
+        
+        # Save the uploaded file
+        audio_file.save(temp_path)
+        
+        # Transcribe using Whisper
+        print("Starting transcription...")
+        segments, info = model.transcribe(
+            temp_path,
+            language="en",
+            beam_size=1,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500)
+        )
+        
+        # Collect all segments
+        text = " ".join(segment.text for segment in segments)
+        segments_data = [{"text": seg.text, "start": seg.start, "end": seg.end} for seg in segments]
+        print("Transcription completed!")
+        
+        return jsonify({
+            "success": True,
+            "text": text.strip(),
+            "segments": segments_data
+        })
+        
+    except Exception as e:
+        print(f"Error during transcription: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+        
+    finally:
+        # Clean up temporary file
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception as e:
+                print(f"Warning: Could not remove temporary file: {e}")
+
+if __name__ == "__main__":
+    print("Starting Flask Whisper backend on http://127.0.0.1:5000")
+    app.run(debug=True, port=5000)
