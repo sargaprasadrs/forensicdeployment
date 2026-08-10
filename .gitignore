@@ -46,3 +46,12 @@ models/
 *.tsv
 *.txt
 *.vtt
+
+# Keep build-required JSON manifests (needed for Cloudflare Pages CI)
+!package.json
+!package-lock.json
+!public/manifest.json
+!tsconfig*.json
+
+# Cloudflare wrangler local state
+.wrangler/

@@ -1,11 +1,6 @@
 // src/HomePage.js
 import React, { useState, useRef, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { auth, db, storage } from "./firebaseConfig";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import {
-  ImagePlus,
   Trash2,
   PenTool,
   XCircle,
@@ -15,20 +10,18 @@ import {
   ChevronRight,
   BookmarkPlus,
   Bookmark,
-  Lock,
-  ShieldAlert,
 } from "lucide-react";
 
-import feedbackIcon from "./assets/feedback.png";
-import profileIcon from "./assets/profile.png";
-import logoutIcon from "./assets/logout.png";
 import micIcon from "./assets/mic.png";
-import sendIcon from "./assets/send.png";
 import closeIcon from "./assets/close.png";
+import { API_BASE_URL } from "./config";
+import { blobToWavPcm16 } from "./audioUtils";
+import { base64ToDataUrl } from "./imageUtils";
 
 const MAX_CACHED = 6;
-const getUserCacheKey = (uid) => `ft_cached_descriptions_${uid}`;
-const getUserCurrentKey = (uid) => `ft_current_description_${uid}`;
+// Firebase-free demo: cache keys are global (no per-user namespacing).
+const getUserCacheKey = () => "ft_cached_descriptions_demo";
+const getUserCurrentKey = () => "ft_current_description_demo";
 
 function HomePage() {
   const [isListening, setIsListening] = useState(false);
@@ -36,16 +29,9 @@ function HomePage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [description, setDescription] = useState("");
   const [isLoaded, setIsLoaded] = useState(false);
-  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
-  const [feedbackText, setFeedbackText] = useState("");
-  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
-  const [feedbackSuccess, setFeedbackSuccess] = useState(false);
-  const [screenshotFile, setScreenshotFile] = useState(null);
-  const [screenshotPreview, setScreenshotPreview] = useState(null);
   const [cachedDescriptions, setCachedDescriptions] = useState([]);
   const [showCachePanel, setShowCachePanel] = useState(false);
   const [savePulse, setSavePulse] = useState(false);
-  const [currentUid, setCurrentUid] = useState(null);
   const [genMode, setGenMode] = useState("pencil_sketch"); // 'pencil_sketch' or 'realistic_photo'
   const [lastGeneratedImage, setLastGeneratedImage] = useState(null);
   const [isConfirming, setIsConfirming] = useState(false);
@@ -54,78 +40,56 @@ function HomePage() {
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [selectedImageIndex, setSelectedImageIndex] = useState(null);
   const [currentPrompt, setCurrentPrompt] = useState("");
-  const [showLoginGate, setShowLoginGate] = useState(false);
-  const [authUser, setAuthUser] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
+
+  // Refine modal state
+  const [showRefineModal, setShowRefineModal] = useState(false);
+  const [refineCommand, setRefineCommand] = useState("");
+  const [isRefining, setIsRefining] = useState(false);
+
+  // Face matching state
+  const [showMatchModal, setShowMatchModal] = useState(false);
+  const [matchResults, setMatchResults] = useState(null);
+  const [isMatching, setIsMatching] = useState(false);
+
+  // Inpainting state
+  const [showInpaintModal, setShowInpaintModal] = useState(false);
+  const [inpaintPrompt, setInpaintPrompt] = useState("");
+  const [isInpainting, setIsInpainting] = useState(false);
+  const [isPainting, setIsPainting] = useState(false);
 
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
-  const fileInputRef = useRef(null);
   const cachePanelRef = useRef(null);
 
+  // Load persisted state (Firebase-free demo: no auth).
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((user) => {
-      setAuthUser(user);
-      setAuthLoading(false);
-      if (user) {
-        logUserActivity("PAGE", "HOME_VIEW");
-        setCurrentUid(user.uid);
-        
-        // Load settings/cache for this user
-        const savedCache = localStorage.getItem(getUserCacheKey(user.uid));
-        if (savedCache) {
-          try { setCachedDescriptions(JSON.parse(savedCache)); } catch { setCachedDescriptions([]); }
-        }
-        
-        const currentSaved = localStorage.getItem(getUserCurrentKey(user.uid));
-        if (currentSaved) setDescription(currentSaved);
-
-        // Load last generated sketch (global or user-specific if preferred)
-        const lastImg = localStorage.getItem("generatedSketch");
-        if (lastImg) setLastGeneratedImage(`data:image/png;base64,${lastImg}`);
-      } else {
-        logUserActivity("PAGE", "GUEST_HOME_VIEW");
-        setCurrentUid(null);
-        setCachedDescriptions([]);
-      }
-    });
-    return () => unsubscribe();
-  }, []);
-  const navigate = useNavigate();
-
-  const logUserActivity = async (type, action, meta = {}) => {
-    try {
-      const user = auth.currentUser;
-      if (!user) return;
-      await addDoc(collection(db, "user_activity"), {
-        uid: user.uid,
-        email: user.email,
-        type,
-        action,
-        meta,
-        timestamp: serverTimestamp(),
-      });
-    } catch (err) {
-      console.error("Activity log failed:", err);
+    const savedCache = localStorage.getItem(getUserCacheKey());
+    if (savedCache) {
+      try { setCachedDescriptions(JSON.parse(savedCache)); } catch { setCachedDescriptions([]); }
     }
-  };
+    const currentSaved = localStorage.getItem(getUserCurrentKey());
+    if (currentSaved) setDescription(currentSaved);
+    const lastImg = localStorage.getItem("generatedSketch");
+    if (lastImg) setLastGeneratedImage(base64ToDataUrl(lastImg));
+  }, []);
+
+  // Firebase was removed for the demo; activity logging is intentionally a no-op.
+  const logUserActivity = async () => {};
 
   useEffect(() => {
     setIsLoaded(true);
   }, []);
 
   useEffect(() => {
-    if (!currentUid) return;
     const timeout = setTimeout(() => {
       if (description.trim()) {
-        localStorage.setItem(getUserCurrentKey(currentUid), description);
+        localStorage.setItem(getUserCurrentKey(), description);
       } else {
-        // Remove from localStorage when description is empty
-        localStorage.removeItem(getUserCurrentKey(currentUid));
+        localStorage.removeItem(getUserCurrentKey());
       }
     }, 500);
     return () => clearTimeout(timeout);
-  }, [description, currentUid]);
+  }, [description]);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -145,21 +109,12 @@ function HomePage() {
   useEffect(() => {
     const handleEscape = (e) => {
       if (e.key === "Escape") {
-        setShowFeedbackModal(false);
         setShowCachePanel(false);
-        resetFeedbackForm();
       }
     };
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
   }, []);
-
-  const resetFeedbackForm = () => {
-    setFeedbackText("");
-    setScreenshotFile(null);
-    setScreenshotPreview(null);
-    setFeedbackSuccess(false);
-  };
 
   const getPreviewText = (text, maxLen = 45) => {
     const cleaned = text.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
@@ -169,7 +124,7 @@ function HomePage() {
   };
 
   const saveToCache = () => {
-    if (!description.trim() || !currentUid) return;
+    if (!description.trim()) return;
     const newEntry = {
       id: Date.now(),
       text: description.trim(),
@@ -183,10 +138,7 @@ function HomePage() {
     }
     const updated = [newEntry, ...cachedDescriptions].slice(0, MAX_CACHED);
     setCachedDescriptions(updated);
-    localStorage.setItem(
-      getUserCacheKey(currentUid),
-      JSON.stringify(updated)
-    );
+    localStorage.setItem(getUserCacheKey(), JSON.stringify(updated));
     setSavePulse(true);
     setTimeout(() => setSavePulse(false), 600);
     logUserActivity("CACHE", "SAVE_DESCRIPTION", {
@@ -204,21 +156,12 @@ function HomePage() {
     e.stopPropagation();
     const updated = cachedDescriptions.filter((c) => c.id !== id);
     setCachedDescriptions(updated);
-    if (currentUid)
-      localStorage.setItem(
-        getUserCacheKey(currentUid),
-        JSON.stringify(updated)
-      );
+    localStorage.setItem(getUserCacheKey(), JSON.stringify(updated));
   };
 
   const clearAllCache = () => {
     setCachedDescriptions([]);
-    if (currentUid) localStorage.removeItem(getUserCacheKey(currentUid));
-  };
-
-  const clearUserCache = (uid) => {
-    localStorage.removeItem(getUserCacheKey(uid));
-    localStorage.removeItem(getUserCurrentKey(uid));
+    localStorage.removeItem(getUserCacheKey());
   };
 
   const formatTimeAgo = (isoString) => {
@@ -249,10 +192,17 @@ function HomePage() {
         });
         chunksRef.current = [];
         const formData = new FormData();
-        formData.append("file", audioBlob);
+        let uploadBlob = audioBlob;
+        try {
+          // Workers AI Whisper expects 16 kHz mono PCM; convert on the client.
+          uploadBlob = await blobToWavPcm16(audioBlob);
+        } catch (err) {
+          console.warn("WAV conversion failed, sending original blob", err);
+        }
+        formData.append("file", uploadBlob);
         try {
           const response = await fetch(
-            "http://localhost:5000/api/transcribe",
+            `${API_BASE_URL}/api/transcribe`,
             { method: "POST", body: formData }
           );
           const data = await response.json();
@@ -309,21 +259,7 @@ function HomePage() {
   };
 
   const extractFeaturesWithLLM = async () => {
-    // 1. Show login gate to guests FIRST (even if empty description)
-    if (!authUser && !authLoading) {
-      setShowLoginGate(true);
-      return;
-    }
-
     if (!description.trim()) return;
-
-    // Wait for auth to initialize or check immediately
-    if (authLoading) return;
-
-    if (!authUser) {
-      setShowLoginGate(true);
-      return;
-    }
 
     saveToCache();
     setIsGenerating(true);
@@ -333,7 +269,7 @@ function HomePage() {
     });
 
     try {
-      const llmRes = await fetch("http://127.0.0.1:5000/api/llm-extract", {
+      const llmRes = await fetch(`${API_BASE_URL}/api/llm-extract`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: description }),
@@ -368,14 +304,6 @@ function HomePage() {
     try {
       const richPrompt = extractedFeatures.rich_prompt || "";
 
-      // The LLM now returns all features in a 'features' dictionary
-      const dynamicFeatures = (extractedFeatures && extractedFeatures.features) || {};
-
-      localStorage.setItem(
-        "extractedFeatures",
-        JSON.stringify(dynamicFeatures)
-      );
-
       let prompt = "";
       let negative_prompt = "";
 
@@ -399,7 +327,7 @@ Masterpiece, 8k, detailed facial features, professional photography, cinematic l
       setCurrentPrompt(prompt);
 
       const imgRes = await fetch(
-        "http://127.0.0.1:5000/api/generate-image",
+        `${API_BASE_URL}/api/generate-image`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -412,7 +340,7 @@ Masterpiece, 8k, detailed facial features, professional photography, cinematic l
         setIsGenerating(false);
         return;
       }
-      setPreviewImages(imgData.images.map(img => `data:image/png;base64,${img}`));
+      setPreviewImages(imgData.images.map(img => base64ToDataUrl(img)));
       setIsGenerating(false);
       setIsPreviewing(true);
 
@@ -421,9 +349,7 @@ Masterpiece, 8k, detailed facial features, professional photography, cinematic l
       alert("Backend error (image generation)");
       setIsGenerating(false);
     }
-  };
-
-  const finalizeSelection = () => {
+  };  const finalizeSelection = () => {
     if (selectedImageIndex === null) return;
 
     // Get the base64 part only
@@ -432,94 +358,89 @@ Masterpiece, 8k, detailed facial features, professional photography, cinematic l
     localStorage.setItem("lastPrompt", currentPrompt);
     localStorage.setItem("generationMode", genMode);
     setLastGeneratedImage(previewImages[selectedImageIndex]);
-
     setIsPreviewing(false);
-    navigate("/attributes");
   };
 
-
-  const handleScreenshotChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        alert("File size must be less than 5MB");
-        return;
-      }
-      setScreenshotFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => setScreenshotPreview(reader.result);
-      reader.readAsDataURL(file);
-    }
+  // Download the generated sketch as a PNG file.
+  const downloadSketch = () => {
+    if (!lastGeneratedImage) return;
+    const link = document.createElement('a');
+    link.download = `suspect_sketch_${Date.now()}.png`;
+    link.href = lastGeneratedImage;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
-  const removeScreenshot = () => {
-    setScreenshotFile(null);
-    setScreenshotPreview(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
+  // Open the refine modal.
+  const openRefineModal = () => {
+    setRefineCommand("");
+    setShowRefineModal(true);
   };
 
-  const handleSubmitFeedback = async () => {
-    if (!feedbackText.trim()) return;
-    setIsSubmittingFeedback(true);
+  // Call /api/refine-image to refine the sketch with a text command.
+  const handleRefine = async () => {
+    if (!refineCommand.trim() || !currentPrompt) return;
+    setIsRefining(true);
     try {
-      const user = auth.currentUser;
-      let screenshotURL = null;
-      if (screenshotFile) {
-        const timestamp = Date.now();
-        const fileName = `feedback_screenshots/${user?.uid || "anonymous"}/${timestamp}_${screenshotFile.name}`;
-        const storageRef = ref(storage, fileName);
-        await uploadBytes(storageRef, screenshotFile);
-        screenshotURL = await getDownloadURL(storageRef);
+      const res = await fetch(`${API_BASE_URL}/api/refine-image`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          command: refineCommand.trim(),
+          original_prompt: currentPrompt,
+          mode: genMode,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        const newImage = base64ToDataUrl(data.image);
+        setLastGeneratedImage(newImage);
+        setCurrentPrompt(data.prompt);
+        localStorage.setItem("generatedSketch", data.image);
+        localStorage.setItem("lastPrompt", data.prompt);
+        setShowRefineModal(false);
+        setRefineCommand("");
+      } else {
+        alert("Refinement failed: " + (data.error || "Unknown error"));
       }
-      await addDoc(collection(db, "feedback"), {
-        userId: user?.uid || "anonymous",
-        email: user?.email || "anonymous",
-        message: feedbackText.trim(),
-        screenshotURL,
-        createdAt: serverTimestamp(),
-        page: "home",
-      });
-      await logUserActivity("FEEDBACK", "SUBMIT", {
-        hasScreenshot: !!screenshotFile,
-      });
-      setFeedbackSuccess(true);
-      setTimeout(() => {
-        setShowFeedbackModal(false);
-        resetFeedbackForm();
-      }, 2000);
-    } catch (error) {
-      console.error("Feedback submission error:", error);
-      alert("Failed to submit feedback. Please try again.");
-    } finally {
-      setIsSubmittingFeedback(false);
+    } catch (err) {
+      console.error("Refine error:", err);
+      alert("Backend error during refinement");
     }
+    setIsRefining(false);
   };
 
-  const handleLogout = async () => {
+  // Call /api/match-face to match the generated sketch against the gallery.
+  const handleMatchFace = async () => {
+    if (!currentPrompt) return;
+    setIsMatching(true);
+    setShowMatchModal(true);
     try {
-      await logUserActivity("AUTH", "LOGOUT");
-
-      // Clear ALL user cache data on logout
-      if (currentUid) {
-        clearUserCache(currentUid);
-        // Also clear the local state
-        setDescription("");
-        setCachedDescriptions([]);
-        setCurrentUid(null);
+      const res = await fetch(`${API_BASE_URL}/api/match-face`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: currentPrompt }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMatchResults(data);
+      } else {
+        alert("Matching failed: " + (data.error || "Unknown error"));
+        setShowMatchModal(false);
       }
-
-      await auth.signOut();
-      navigate("/");
-    } catch (error) {
-      console.error("Logout error:", error);
+    } catch (err) {
+      console.error("Match error:", err);
+      alert("Backend error during matching");
+      setShowMatchModal(false);
     }
+    setIsMatching(false);
   };
 
-  const handleProfileClick = () => navigate("/profile");
-
-  const handleCloseFeedbackModal = () => {
-    setShowFeedbackModal(false);
-    resetFeedbackForm();
+  // Open the inpainting modal.
+  const openInpaintModal = () => {
+    setInpaintPrompt("");
+    setShowInpaintModal(true);
   };
 
   return (
@@ -554,264 +475,9 @@ Masterpiece, 8k, detailed facial features, professional photography, cinematic l
           <span className="nav-title">FACE TRACE</span>
         </div>
         <div className="nav-right">
-          <button
-            className="nav-btn"
-            onClick={() => setShowFeedbackModal(true)}
-            title="Feedback"
-          >
-            <img
-              src={feedbackIcon}
-              alt="Feedback"
-              className="crisp-icon nav-icon-size"
-            />
-            <span className="nav-btn-label">Feedback</span>
-          </button>
-
-          <span className="nav-dot" />
-
-          {auth.currentUser ? (
-            <>
-              <button
-                className="nav-btn"
-                onClick={handleProfileClick}
-                title="Profile"
-              >
-                <img
-                  src={profileIcon}
-                  alt="Profile"
-                  className="crisp-icon nav-icon-size"
-                />
-                <span className="nav-btn-label">Profile</span>
-              </button>
-
-              <span className="nav-dot" />
-
-              <button
-                className="nav-btn nav-btn-logout"
-                onClick={handleLogout}
-                title="Logout"
-              >
-                <img
-                  src={logoutIcon}
-                  alt="Logout"
-                  className="crisp-icon nav-icon-size"
-                />
-                <span className="nav-btn-label">Logout</span>
-              </button>
-            </>
-          ) : (
-            <button
-              className="nav-btn nav-btn-login premium-pulse"
-              onClick={() => navigate("/login")}
-              title="Sign In"
-            >
-              <img
-                src={profileIcon}
-                alt="Login"
-                className="crisp-icon nav-icon-size inverted"
-              />
-              <span className="nav-btn-label">Access System</span>
-            </button>
-          )}
+          <span className="nav-demo-badge">Public Demo</span>
         </div>
       </nav>
-
-      {/* Feedback Modal */}
-      {showFeedbackModal && (
-        <div className="modal-overlay" onClick={handleCloseFeedbackModal}>
-          <div
-            className="modal-container"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-panel">
-              <div className="panel-corners">
-                <div className="corner top-left" />
-                <div className="corner top-right" />
-                <div className="corner bottom-left" />
-                <div className="corner bottom-right" />
-              </div>
-              <button
-                className="modal-close-btn"
-                onClick={handleCloseFeedbackModal}
-                type="button"
-              >
-                <img src={closeIcon} alt="Close" className="crisp-icon" />
-              </button>
-              <div className="modal-header">
-                <span className="panel-number">FB</span>
-                <h2>Share Your Feedback</h2>
-              </div>
-              {feedbackSuccess ? (
-                <div className="feedback-success">
-                  <div className="success-icon">
-                    <CheckCircle size={48} />
-                  </div>
-                  <span>Thank you for your feedback!</span>
-                </div>
-              ) : (
-                <>
-
-                  <div className="feedback-input-section">
-                    <label className="feedback-label">
-                      <span className="label-text">Your Thoughts</span>
-                      <span className="label-line" />
-                    </label>
-                    <textarea
-                      className="feedback-textarea"
-                      placeholder="Tell us about your experience, suggestions, or any issues you encountered..."
-                      value={feedbackText}
-                      onChange={(e) => setFeedbackText(e.target.value)}
-                      rows={5}
-                    />
-                  </div>
-                  <div className="screenshot-section">
-                    <label className="feedback-label">
-                      <span className="label-text">
-                        Upload Screenshot (Optional)
-                      </span>
-                      <span className="label-line" />
-                    </label>
-                    {!screenshotPreview ? (
-                      <div className="screenshot-upload-area">
-                        <input
-                          type="file"
-                          id="screenshot"
-                          ref={fileInputRef}
-                          accept="image/*"
-                          onChange={handleScreenshotChange}
-                          className="screenshot-input"
-                        />
-                        <label
-                          htmlFor="screenshot"
-                          className="screenshot-label"
-                        >
-                          <div className="upload-icon">
-                            <ImagePlus size={40} />
-                          </div>
-                          <span className="upload-text">
-                            Click to upload image
-                          </span>
-                          <span className="upload-hint">
-                            PNG, JPG up to 5MB
-                          </span>
-                        </label>
-                      </div>
-                    ) : (
-                      <div className="screenshot-preview">
-                        <img
-                          src={screenshotPreview}
-                          alt="Screenshot preview"
-                        />
-                        <button
-                          type="button"
-                          className="remove-screenshot-btn"
-                          onClick={removeScreenshot}
-                        >
-                          <img
-                            src={closeIcon}
-                            alt="Remove"
-                            className="crisp-icon inverted remove-icon-size"
-                          />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <div className="modal-actions">
-                    <button
-                      type="button"
-                      className="modal-btn secondary"
-                      onClick={handleCloseFeedbackModal}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      className="modal-btn primary"
-                      onClick={handleSubmitFeedback}
-                      disabled={
-                        isSubmittingFeedback || !feedbackText.trim()
-                      }
-                    >
-                      {isSubmittingFeedback ? (
-                        <>
-                          <div className="btn-loader" />
-                          <span>Submitting...</span>
-                        </>
-                      ) : (
-                        <>
-                          <img
-                            src={sendIcon}
-                            alt="Send"
-                            className="crisp-icon inverted"
-                          />
-                          <span>Submit Feedback</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Login Gate Modal */}
-      {showLoginGate && (
-        <div className="modal-overlay" onClick={() => setShowLoginGate(false)}>
-          <div className="modal-container login-gate-modal" onClick={(e) => e.stopPropagation()}>
-            <button className="modal-close-btn" onClick={() => setShowLoginGate(false)}>
-              <div className="crisp-icon-wrapper">
-                <XCircle size={24} className="crisp-icon" />
-              </div>
-            </button>
-            <div className="modal-header">
-              <span className="panel-number">AUTH</span>
-              <h2>Authentication Required</h2>
-            </div>
-            <div className="gate-content">
-              <div className="gate-icon-wrapper">
-                <div className="gate-rings">
-                  <div className="ring" />
-                  <div className="ring" />
-                </div>
-                <BookmarkPlus size={48} className="gate-main-icon" />
-              </div>
-              <p className="gate-text">
-                To access the **Neural Synthesis Interface** and generate high-fidelity forensic sketches, you must be logged into the investigator system.
-              </p>
-              <div className="gate-features">
-                <div className="gate-feature">
-                  <CheckCircle size={16} />
-                  <span>Cloud Synchronization</span>
-                </div>
-                <div className="gate-feature">
-                  <CheckCircle size={16} />
-                  <span>Evidence Persistence</span>
-                </div>
-                <div className="gate-feature">
-                  <CheckCircle size={16} />
-                  <span>Advanced Model Access</span>
-                </div>
-              </div>
-            </div>
-            <div className="modal-actions">
-              <button className="modal-btn secondary" onClick={() => setShowLoginGate(false)}>
-                Stay as Guest
-              </button>
-              <button 
-                className="modal-btn primary premium-pulse" 
-                onClick={() => {
-                  setShowLoginGate(false);
-                  navigate("/login");
-                }}
-              >
-                Initialize Login
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <main className={`main-content ${isLoaded ? "loaded" : ""}`}>
         <header className="hero-banner">
@@ -827,14 +493,7 @@ Masterpiece, 8k, detailed facial features, professional photography, cinematic l
               Transforming witness testimonies into high-fidelity forensic sketches 
               using advanced neural synthesis and linguistic analysis.
             </p>
-            {!auth.currentUser && (
-              <div className="hero-cta">
-                <button className="cta-button" onClick={() => navigate("/login")}>
-                  <span>Initialize Investigator Account</span>
-                  <ChevronRight size={18} />
-                </button>
-              </div>
-            )}
+
           </div>
           <div className="hero-visual-bg" />
         </header>
@@ -995,8 +654,17 @@ Masterpiece, 8k, detailed facial features, professional photography, cinematic l
                   <img src={lastGeneratedImage} alt="Last Generated" className="sketch-image" />
                 </div>
                 <div className="preview-actions">
-                  <button className="preview-btn" onClick={() => navigate("/attributes")}>
-                    REFINE SKETCH
+                  <button className="preview-btn" onClick={openRefineModal}>
+                    REFINE
+                  </button>
+                  <button className="preview-btn" onClick={openInpaintModal}>
+                    INPAINT
+                  </button>
+                  <button className="preview-btn" onClick={handleMatchFace}>
+                    MATCH
+                  </button>
+                  <button className="preview-btn" onClick={downloadSketch}>
+                    DOWNLOAD
                   </button>
                   <button className="preview-btn secondary" onClick={() => setLastGeneratedImage(null)}>
                     DISMISS
@@ -1032,40 +700,25 @@ Masterpiece, 8k, detailed facial features, professional photography, cinematic l
         </div>
 
         <div className="action-bar-container">
-          {authUser ? (
-            <div className="investigator-badge">
-              <CheckCircle size={14} className="notice-icon" />
-              <span>Investigator Verified</span>
-            </div>
-          ) : (
-            !authLoading && (
-              <div className="guest-notice">
-                <ShieldAlert size={14} className="notice-icon" />
-                <span>Login required for neural synthesis</span>
-              </div>
-            )
-          )}
+          <div className="guest-notice">
+            <CheckCircle size={14} className="notice-icon" />
+            <span>Public demo — no login required</span>
+          </div>
           <div className="action-bar">
             <button
-              className={`action-button primary ${!authUser ? "guest-lock" : ""} ${authUser && description.trim() ? "ready-pulse" : ""}`}
+              className={`action-button primary ${description.trim() ? "ready-pulse" : ""}`}
               onClick={extractFeaturesWithLLM}
-              disabled={isGenerating || (authUser && !description.trim())}
-              title={!authUser ? (authLoading ? "Initializing..." : "Login Required") : (description.trim() ? "Generate Sketch" : "Description Required")}
+              disabled={isGenerating || !description.trim()}
+              title={description.trim() ? "Generate Sketch" : "Description Required"}
             >
-              {!authUser ? (
-                <Lock size={18} className="btn-icon lock-icon" />
-              ) : (
-                <PenTool size={18} className="btn-icon" />
-              )}
+              <PenTool size={18} className="btn-icon" />
               <span>{isGenerating ? "EXTRACTING..." : "GENERATE SKETCH"}</span>
             </button>
             <button
               className="action-button secondary"
               onClick={() => {
                 setDescription("");
-                if (currentUid) {
-                  localStorage.removeItem(getUserCurrentKey(currentUid));
-                }
+                localStorage.removeItem(getUserCurrentKey());
               }}
             >
               <Trash2 size={18} className="btn-icon" />
@@ -1195,7 +848,7 @@ Masterpiece, 8k, detailed facial features, professional photography, cinematic l
         <div className="modal-overlay">
           <div className="modal-container preview-modal">
             <h2 className="modal-title">Select the Best Match</h2>
-            <p className="modal-subtitle">Our AI has generated 4 variations. Please pick the one that most closely resembles the suspect's description.</p>
+            <p className="modal-subtitle">Our AI has generated {previewImages.length} {previewImages.length === 1 ? "variation" : "variations"}. Please pick the one that most closely resembles the suspect's description.</p>
 
             <div className="preview-grid">
               {previewImages.map((img, idx) => (
@@ -1227,6 +880,26 @@ Masterpiece, 8k, detailed facial features, professional photography, cinematic l
               </button>
               <button
                 type="button"
+                className="modal-btn secondary"
+                disabled={selectedImageIndex === null}
+                onClick={() => {
+                  const img = previewImages[selectedImageIndex || 0];
+                  if (img) {
+                    const link = document.createElement('a');
+                    link.download = `suspect_sketch_${Date.now()}.png`;
+                    link.href = img;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                  }
+                }}
+                title="Download selected"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '6px' }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                <span>Download</span>
+              </button>
+              <button
+                type="button"
                 className="modal-btn primary"
                 disabled={selectedImageIndex === null}
                 onClick={finalizeSelection}
@@ -1234,6 +907,274 @@ Masterpiece, 8k, detailed facial features, professional photography, cinematic l
                 <CheckCircle size={16} style={{ marginRight: '8px' }} />
                 <span>Finalize & Proceed</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🔧 Refine Modal */}
+      {showRefineModal && (
+        <div className="modal-overlay" onClick={() => setShowRefineModal(false)}>
+          <div className="modal-container" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-panel">
+              <div className="panel-corners">
+                <div className="corner top-left" />
+                <div className="corner top-right" />
+                <div className="corner bottom-left" />
+                <div className="corner bottom-right" />
+              </div>
+              <button className="modal-close-btn" onClick={() => setShowRefineModal(false)} type="button">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+              <div className="modal-header">
+                <span className="panel-number">RF</span>
+                <h2>Refine Sketch</h2>
+              </div>
+              <div className="feedback-input-section">
+                <label className="feedback-label">
+                  <span className="label-text">Current Prompt</span>
+                  <span className="label-line" />
+                </label>
+                <div className="current-prompt-display">{currentPrompt}</div>
+              </div>
+              <div className="feedback-input-section">
+                <label className="feedback-label">
+                  <span className="label-text">Modification Command</span>
+                  <span className="label-line" />
+                </label>
+                <textarea
+                  className="feedback-textarea"
+                  placeholder="e.g. Make the scar on the left cheek more prominent, widen the eyes slightly..."
+                  value={refineCommand}
+                  onChange={(e) => setRefineCommand(e.target.value)}
+                  rows={3}
+                />
+              </div>
+              <div className="modal-actions">
+                <button className="modal-btn secondary" onClick={() => setShowRefineModal(false)}>
+                  Cancel
+                </button>
+                <button
+                  className="modal-btn primary"
+                  onClick={handleRefine}
+                  disabled={isRefining || !refineCommand.trim()}
+                >
+                  {isRefining ? (
+                    <>
+                      <div className="btn-loader" />
+                      <span>Refining...</span>
+                    </>
+                  ) : (
+                    <span>Generate Refined Sketch</span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🎯 Face Match Modal */}
+      {showMatchModal && (
+        <div className="modal-overlay" onClick={() => { setShowMatchModal(false); setMatchResults(null); }}>
+          <div className="modal-container preview-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close-btn" onClick={() => { setShowMatchModal(false); setMatchResults(null); }} type="button">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+            <h2 className="modal-title">Gallery Face Matching</h2>
+            <p className="modal-subtitle">
+              {isMatching
+                ? "Comparing sketch against gallery using AI embeddings..."
+                : matchResults
+                  ? `Top ${matchResults.matches.length} match${matchResults.matches.length > 1 ? "es" : ""} found`
+                  : ""}
+            </p>
+
+            {isMatching ? (
+              <div style={{ textAlign: "center", padding: "3rem 0", color: "var(--ink-muted)" }}>
+                <div className="btn-loader" style={{ margin: "0 auto 1rem", borderColor: "var(--ink-muted)", borderTopColor: "transparent", width: "32px", height: "32px", borderWidth: "3px" }} />
+                <span>Matching...</span>
+              </div>
+            ) : matchResults ? (
+              <div className="match-grid">
+                {matchResults.matches.map((match, idx) => (
+                  <div
+                    key={idx}
+                    className={`match-card ${idx === 0 ? "best-match" : ""}`}
+                  >
+                    <div className="match-rank">{idx === 0 ? "BEST" : `#${idx + 1}`}</div>
+                    <div className="match-avatar">
+                      {match.image_url ? (
+                        <img src={match.image_url} alt={match.label} />
+                      ) : (
+                        <div className="match-avatar-placeholder">
+                          {match.label.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2)}
+                        </div>
+                      )}
+                    </div>
+                    <div className="match-info">
+                      <span className="match-name">{match.label}</span>
+                      <div className="match-confidence-bar">
+                        <div
+                          className={`match-confidence-fill ${match.similarity > 0.6 ? "high" : match.similarity > 0.4 ? "medium" : "low"}`}
+                          style={{ width: `${Math.min(match.similarity * 100, 100)}%` }}
+                        />
+                      </div>
+                      <span className="match-confidence-label">
+                        {Math.round(match.similarity * 100)}% match
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {matchResults && (
+              <div className="modal-actions">
+                <button
+                  className="modal-btn primary"
+                  onClick={() => { setShowMatchModal(false); setMatchResults(null); }}
+                >
+                  Close
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 🎨 Inpainting Modal */}
+      {showInpaintModal && (
+        <div className="modal-overlay" onClick={() => setShowInpaintModal(false)}>
+          <div className="modal-container" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-panel">
+              <div className="panel-corners">
+                <div className="corner top-left" />
+                <div className="corner top-right" />
+                <div className="corner bottom-left" />
+                <div className="corner bottom-right" />
+              </div>
+              <button className="modal-close-btn" onClick={() => setShowInpaintModal(false)} type="button">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+              <div className="modal-header">
+                <span className="panel-number">IP</span>
+                <h2>Inpaint Sketch Area</h2>
+              </div>
+
+              <div className="inpaint-container">
+                <div className="inpaint-canvas-wrapper">
+                  <img
+                    src={lastGeneratedImage}
+                    alt="Sketch to inpaint"
+                    className="inpaint-source-img"
+                    crossOrigin="anonymous"
+                  />
+                  <canvas
+                    ref={(el) => {
+                      if (el) {
+                        el.width = 400;
+                        el.height = 400;
+                        const ctx = el.getContext('2d');
+                        if (ctx) {
+                          ctx.fillStyle = 'black';
+                          ctx.fillRect(0, 0, 400, 400);
+                        }
+                      }
+                    }}
+                    className="inpaint-overlay-canvas"
+                    width={400}
+                    height={400}
+                    onMouseDown={(e) => {
+                      setIsPainting(true);
+                      const canvas = e.currentTarget;
+                      const ctx = canvas.getContext('2d');
+                      const rect = canvas.getBoundingClientRect();
+                      ctx.fillStyle = 'white';
+                      ctx.beginPath();
+                      ctx.arc(e.clientX - rect.left, e.clientY - rect.top, 15, 0, Math.PI * 2);
+                      ctx.fill();
+                    }}
+                    onMouseMove={(e) => {
+                      if (!isPainting) return;
+                      const canvas = e.currentTarget;
+                      const ctx = canvas.getContext('2d');
+                      const rect = canvas.getBoundingClientRect();
+                      ctx.fillStyle = 'white';
+                      ctx.beginPath();
+                      ctx.arc(e.clientX - rect.left, e.clientY - rect.top, 15, 0, Math.PI * 2);
+                      ctx.fill();
+                    }}
+                    onMouseUp={() => setIsPainting(false)}
+                    onMouseLeave={() => setIsPainting(false)}
+                  />
+                </div>
+                <p className="inpaint-hint">Paint over the areas you want to change, then describe the change below.</p>
+              </div>
+
+              <div className="feedback-input-section" style={{ marginTop: '1rem' }}>
+                <textarea
+                  className="feedback-textarea"
+                  placeholder="e.g. Remove the scar, change hair to blonde..."
+                  value={inpaintPrompt}
+                  onChange={(e) => setInpaintPrompt(e.target.value)}
+                  rows={2}
+                />
+              </div>
+
+              <div className="modal-actions">
+                <button className="modal-btn secondary" onClick={() => setShowInpaintModal(false)}>
+                  Cancel
+                </button>
+                <button
+                  className="modal-btn primary"
+                  onClick={async () => {
+                    if (!inpaintPrompt.trim() || !lastGeneratedImage) return;
+                    setIsInpainting(true);
+                    try {
+                      // Get the canvas mask
+                      const maskCanvas = document.querySelector('.inpaint-overlay-canvas');
+                      if (!maskCanvas) { setIsInpainting(false); return; }
+                      const maskDataUrl = maskCanvas.toDataURL();
+                      const maskBase64 = maskDataUrl.split(',')[1];
+                      const imageBase64 = lastGeneratedImage.split(',')[1];
+
+                      const res = await fetch(`${API_BASE_URL}/api/inpaint`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          prompt: inpaintPrompt.trim(),
+                          image: imageBase64,
+                          mask: maskBase64,
+                        }),
+                      });
+                      const data = await res.json();
+                      if (data.success) {
+                        const newImage = base64ToDataUrl(data.image);
+                        setLastGeneratedImage(newImage);
+                        localStorage.setItem("generatedSketch", data.image);
+                        setShowInpaintModal(false);
+                      } else {
+                        alert("Inpainting failed: " + (data.error || "Unknown error"));
+                      }
+                    } catch (err) {
+                      console.error("Inpaint error:", err);
+                      alert("Backend error during inpainting");
+                    }
+                    setIsInpainting(false);
+                  }}
+                  disabled={isInpainting || !inpaintPrompt.trim()}
+                >
+                  {isInpainting ? (
+                    <>
+                      <div className="btn-loader" />
+                      <span>Inpainting...</span>
+                    </>
+                  ) : (
+                    <span>Apply Inpainting</span>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1438,6 +1379,19 @@ Masterpiece, 8k, detailed facial features, professional photography, cinematic l
           display: flex;
           align-items: center;
           gap: 0.25rem;
+        }
+
+        .nav-demo-badge {
+          font-family: var(--font-display);
+          font-size: 0.62rem;
+          font-weight: 800;
+          letter-spacing: 0.18em;
+          text-transform: uppercase;
+          color: var(--cinnabar);
+          border: 1.5px solid var(--cinnabar);
+          border-radius: 3px;
+          padding: 0.3rem 0.6rem;
+          opacity: 0.85;
         }
 
         .nav-dot {
@@ -2621,6 +2575,213 @@ Masterpiece, 8k, detailed facial features, professional photography, cinematic l
           0% { box-shadow: 0 0 10px rgba(179, 58, 58, 0.3); }
           50% { box-shadow: 0 0 25px rgba(179, 58, 58, 0.6); }
           100% { box-shadow: 0 0 10px rgba(179, 58, 58, 0.3); }
+        }
+      `}</style>
+
+      <style>{`
+        /* ═══════════════════════════════════════
+           NEW FEATURES: Refine, Match, Inpaint
+        ═══════════════════════════════════════ */
+
+        .current-prompt-display {
+          background: var(--parchment);
+          border: 2px solid var(--ink);
+          border-radius: var(--radius-sm);
+          padding: 0.75rem 1rem;
+          font-family: var(--font-body);
+          font-size: 0.8rem;
+          color: var(--ink-muted);
+          line-height: 1.5;
+          max-height: 120px;
+          overflow-y: auto;
+          word-break: break-word;
+        }
+
+        .preview-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+          margin-top: 1rem;
+        }
+
+        .preview-btn {
+          padding: 0.5rem 0.85rem;
+          font-family: var(--font-display);
+          font-size: 0.62rem;
+          font-weight: 800;
+          letter-spacing: 0.1em;
+          border: 2px solid var(--ink);
+          border-radius: var(--radius-sm);
+          background: var(--parchment);
+          color: var(--ink);
+          cursor: pointer;
+          transition: all 0.2s var(--transition-smooth);
+        }
+
+        .preview-btn:hover {
+          background: var(--ink);
+          color: var(--parchment);
+          transform: translateY(-1px);
+        }
+
+        .preview-btn.secondary {
+          opacity: 0.6;
+        }
+
+        .preview-btn.secondary:hover {
+          opacity: 1;
+          background: var(--cinnabar);
+          border-color: var(--cinnabar);
+          color: var(--parchment);
+        }
+
+        /* Match Grid */
+        .match-grid {
+          display: grid;
+          gap: 1rem;
+          padding: 1rem 0;
+        }
+
+        .match-card {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+          padding: 1rem;
+          background: var(--parchment);
+          border: 2px solid var(--ink);
+          border-radius: var(--radius-sm);
+          position: relative;
+          transition: all 0.3s ease;
+        }
+
+        .match-card.best-match {
+          border-color: var(--indigo-light);
+          background: rgba(42, 157, 143, 0.05);
+        }
+
+        .match-rank {
+          position: absolute;
+          top: -1px;
+          right: -1px;
+          font-family: var(--font-display);
+          font-size: 0.55rem;
+          font-weight: 900;
+          letter-spacing: 0.1em;
+          background: var(--indigo);
+          color: var(--parchment);
+          padding: 0.2rem 0.5rem;
+          border-radius: 0 var(--radius-sm) 0 var(--radius-sm);
+        }
+
+        .match-card.best-match .match-rank {
+          background: var(--indigo-light);
+        }
+
+        .match-avatar {
+          width: 60px;
+          height: 60px;
+          border-radius: 50%;
+          overflow: hidden;
+          border: 2px solid var(--ink);
+          flex-shrink: 0;
+          background: var(--parchment-dark);
+        }
+
+        .match-avatar img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+
+        .match-avatar-placeholder {
+          width: 100%;
+          height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-family: var(--font-display);
+          font-size: 1.2rem;
+          font-weight: 800;
+          color: var(--ink-muted);
+        }
+
+        .match-info {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 0.3rem;
+        }
+
+        .match-name {
+          font-family: var(--font-body);
+          font-size: 0.85rem;
+          font-weight: 700;
+          color: var(--ink);
+        }
+
+        .match-confidence-bar {
+          height: 6px;
+          background: var(--parchment-dark);
+          border-radius: 3px;
+          overflow: hidden;
+        }
+
+        .match-confidence-fill {
+          height: 100%;
+          border-radius: 3px;
+          transition: width 0.8s var(--transition-smooth);
+        }
+
+        .match-confidence-fill.high { background: var(--indigo-light); }
+        .match-confidence-fill.medium { background: var(--sunflower); }
+        .match-confidence-fill.low { background: var(--cinnabar-light); }
+
+        .match-confidence-label {
+          font-family: var(--font-body);
+          font-size: 0.7rem;
+          font-weight: 600;
+          color: var(--ink-muted);
+        }
+
+        /* Inpainting */
+        .inpaint-container {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.75rem;
+        }
+
+        .inpaint-canvas-wrapper {
+          position: relative;
+          width: 400px;
+          height: 400px;
+          border: 2px solid var(--ink);
+          border-radius: var(--radius-sm);
+          overflow: hidden;
+        }
+
+        .inpaint-source-img,
+        .inpaint-overlay-canvas {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+
+        .inpaint-overlay-canvas {
+          cursor: crosshair;
+          opacity: 0.4;
+          mix-blend-mode: screen;
+        }
+
+        .inpaint-hint {
+          font-family: var(--font-body);
+          font-size: 0.75rem;
+          color: var(--ink-muted);
+          font-style: italic;
+          text-align: center;
         }
       `}</style>
     </div>

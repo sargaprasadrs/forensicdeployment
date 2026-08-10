@@ -8,145 +8,17 @@
 //   ╚══╝╚══╝ ╚═╝   ╚═╝   ╚═╝  ╚═══╝╚══════╝╚══════╝╚══════╝
 //                      SKETCH SYSTEM
 // ═══════════════════════════════════════════════════════════════════════════════
+// Firebase-free portfolio demo: a single page (HomePage) that takes a witness
+// description, extracts facial attributes via a Cloudflare Worker LLM, and
+// generates an AI sketch. No auth, no database, no routing.
 
 import React, { useEffect, useState } from "react";
-import {
-  BrowserRouter as Router,
-  Routes,
-  Route,
-  useLocation,
-  Navigate,
-} from "react-router-dom";
-
-// Protected route components
-import UserRoute from "./UserRoute";
-import AdminRoute from "./AdminRoute";
 
 // Pages
-import LoginScreen from "./LoginScreen";
 import HomePage from "./HomePage";
-import AttributeScreen from "./AttributeScreen";
-import SuspectSketch from "./SuspectSketch";
-import PatternMatching from "./PatternMatching";
-import AdminHomeScreen from "./AdminHomeScreen";
-import AdminSignup from "./AdminSignup";
-import AdminUserAnalytics from "./AdminUserAnalytics";
-import ProfileScreen from "./ProfileScreen";  // added
 
 // CSS
 import "./App.css";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PAGE TRANSITION WRAPPER
-// ─────────────────────────────────────────────────────────────────────────────
-
-const PageTransition = ({ children }) => {
-  const location = useLocation();
-  const [displayLocation, setDisplayLocation] = useState(location);
-  const [transitionStage, setTransitionStage] = useState("fade-in");
-
-  useEffect(() => {
-    if (location !== displayLocation) {
-      setTransitionStage("fade-out");
-    }
-  }, [location, displayLocation]);
-
-  const handleAnimationEnd = () => {
-    if (transitionStage === "fade-out") {
-      setTransitionStage("fade-in");
-      setDisplayLocation(location);
-    }
-  };
-
-  return (
-    <div
-      className={`page-transition ${transitionStage}`}
-      onAnimationEnd={handleAnimationEnd}
-    >
-      {children}
-    </div>
-  );
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ANIMATED ROUTES WITH ROLE PROTECTION
-// ─────────────────────────────────────────────────────────────────────────────
-
-const AnimatedRoutes = () => {
-  const location = useLocation();
-
-  return (
-    <PageTransition>
-      <Routes location={location}>
-        {/* Public Landing - Now HomePage */}
-        <Route path="/" element={<HomePage />} />
-        
-        {/* Authentication */}
-        <Route path="/login" element={<LoginScreen />} />
-        <Route path="/admin-signup" element={<AdminSignup />} />
-
-        {/* Protected routes */}
-        <Route
-          path="/attributes"
-          element={
-            <UserRoute>
-              <AttributeScreen />
-            </UserRoute>
-          }
-        />
-        <Route
-          path="/suspect-sketch"
-          element={
-            <UserRoute>
-              <SuspectSketch />
-            </UserRoute>
-          }
-        />
-        <Route
-          path="/pattern-matching"
-          element={
-            <UserRoute>
-              <PatternMatching />
-            </UserRoute>
-          }
-        />
-        <Route
-          path="/profile"
-          element={
-            <UserRoute>
-              <ProfileScreen />
-            </UserRoute>
-          }
-        />
-
-        {/* Admin only */}
-        <Route
-          path="/admin"
-          element={
-            <AdminRoute>
-              <AdminHomeScreen />
-            </AdminRoute>
-          }
-        />
-        <Route
-          path="/admin/users"
-          element={
-            <AdminRoute>
-              <AdminUserAnalytics />
-            </AdminRoute>
-          }
-        />
-
-        {/* Fallback to Home */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </PageTransition>
-  );
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MAIN APP COMPONENT
-// ─────────────────────────────────────────────────────────────────────────────
 
 function App() {
   const [isLoading, setIsLoading] = useState(true);
@@ -163,11 +35,7 @@ function App() {
   return (
     <div className="neo-edo-app">
       <div className="global-paper-texture" />
-
-      <Router>
-        <AnimatedRoutes />
-      </Router>
-
+      <HomePage />
       <GlobalDecorations />
     </div>
   );

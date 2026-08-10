@@ -1,0 +1,19 @@
+name = "facetrace-portfolio"
+compatibility_date = "2026-08-01"
+pages_build_output_dir = "./dist"
+
+[ai]
+binding = "AI"
+
+# Per-IP daily quota backing store for the AI endpoints (functions/api/_lib.js).
+# Create with: npx wrangler kv namespace create AI_LIMIT_KV
+[[kv_namespaces]]
+binding = "AI_LIMIT_KV"
+id = "28c8c8594c4f425fa8ee76c3fac1641a"
+
+# Optional production overrides (set via Pages env vars or uncomment here):
+#   ALLOWED_ORIGIN  = restrict CORS to your production origin, e.g. "https://facetrace-portfolio.pages.dev"
+#   AI_DAILY_LIMIT  = max AI calls per IP per day (default 10)
+# [vars]
+# ALLOWED_ORIGIN = "https://facetrace-portfolio.pages.dev"
+# AI_DAILY_LIMIT = "10"
