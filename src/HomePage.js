@@ -10,6 +10,7 @@ import {
   ChevronRight,
   BookmarkPlus,
   Bookmark,
+  User,
 } from "lucide-react";
 
 import micIcon from "./assets/mic.png";
@@ -476,6 +477,16 @@ Masterpiece, 8k, detailed facial features, professional photography, cinematic l
         </div>
         <div className="nav-right">
           <span className="nav-demo-badge">Public Demo</span>
+          <a
+            className="nav-profile-link"
+            href="https://sargaprasadrs.netlify.app/"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Profile"
+            aria-label="Profile"
+          >
+            <User size={18} strokeWidth={2.5} />
+          </a>
         </div>
       </nav>
 
@@ -742,6 +753,14 @@ Masterpiece, 8k, detailed facial features, professional photography, cinematic l
             <div className="rule-line" />
           </div>
           <p className="footer-text">Forensic AI System v1.0</p>
+          <a
+            className="footer-project-link"
+            href="https://utilixverse.com"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Check out our other project — utilixverse.com
+          </a>
         </footer>
       </main>
 
@@ -1400,6 +1419,33 @@ Masterpiece, 8k, detailed facial features, professional photography, cinematic l
           background: var(--ink);
           opacity: 0.12;
           margin: 0 0.15rem;
+        }
+
+        .nav-profile-link {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 34px;
+          height: 34px;
+          margin-left: 0.5rem;
+          border: 2px solid var(--ink);
+          border-radius: 50%;
+          color: var(--ink);
+          background: var(--parchment-light);
+          cursor: pointer;
+          transition: all 0.25s var(--transition-smooth);
+        }
+
+        .nav-profile-link:hover {
+          color: var(--parchment);
+          background: var(--cinnabar);
+          border-color: var(--cinnabar-dark);
+          transform: translateY(-1px);
+          box-shadow: 2px 2px 0 var(--cinnabar-dark);
+        }
+
+        .nav-profile-link:active {
+          transform: translateY(0) scale(0.95);
         }
 
         /* ═══════════════════════════════════════
@@ -2132,6 +2178,26 @@ Masterpiece, 8k, detailed facial features, professional photography, cinematic l
         .footer-text {
           font-family: var(--font-body); font-size: 0.68rem; color: var(--ink-muted);
           letter-spacing: 0.15em; text-transform: uppercase; opacity: 0.4; margin: 0;
+        }
+
+        .footer-project-link {
+          display: inline-block;
+          margin-top: 0.6rem;
+          font-family: var(--font-body);
+          font-size: 0.68rem;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: var(--ink-muted);
+          opacity: 0.55;
+          text-decoration: none;
+          border-bottom: 1px solid transparent;
+          transition: all 0.25s var(--transition-smooth);
+        }
+
+        .footer-project-link:hover {
+          color: var(--cinnabar);
+          opacity: 1;
+          border-bottom-color: var(--cinnabar);
         }
 
         /* ═══════════════════════════════════════
